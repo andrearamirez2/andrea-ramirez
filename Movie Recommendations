@@ -1,0 +1,190 @@
+"""
+Name: movie_recommendations.py
+Date: 
+Author: Andrea Ramirez
+Description: Reccomends movies to you by searching through ratings made by different users.
+"""
+import math
+import csv
+import scipy.stats
+from scipy.stats import pearsonr
+
+class BadInputError(Exception):
+    pass
+class Movie: 
+    """
+    class is a movie from the movie database.
+    """
+    def __init__(self, id, title):
+        """ 
+        The Constructor.
+        Parameters: self, id, title
+        Purpose: Place holders for instances variables. 
+        These variables are:
+        id: id of the movie
+        title: title of the movie
+        users: list of the id's of the users who have
+                rated this movie. Is an initially empty list but is filled in 
+                as files are read in.
+        similarities: a dictionary 
+                    (id of another movie, and the value is the similarity)
+                    between the two movies that are being compared
+                    The dictionary is first empty, then is filled in as the file containing test ratings
+                    is read, and as thr ratings predictions are made.
+        """
+        self.id = id
+        self.title = title
+        self.users = []
+        self.similarities = {}
+       
+
+    def __str__(self):
+        """
+        Returns string representation of the movie object that calls the method.
+        """
+        return("id: "+ str(self.id) + "title: " + str(self.title))
+        
+    def __repr__(self):
+        """
+        Returns string representation of the movie object that calls the method.
+        """
+        return("id: "+ str(self.id) + "title: " + self.title + "list of users: "+ self.users + "similarity: " + self.similarities)
+
+    def get_similarity(self, other_movie_id, movie_dict, user_dict):
+        """ 
+        Parameters: self, other_movie_id, movie_dict, user_dict
+        Returns: the similarity between the movie that 
+        called the method (self), and another movie whose
+        id is other_movie_id.  (Uses movie_dict and user_dict)
+        If the similarity wasnt already computed, then it will compute the similarity using the compute_similarity
+        method.
+        If other_movie_id is not valid then it will raise an BadInputError exception.
+        """
+
+        if (movie_dict.get(other_movie_id) == None):
+            
+            raise BadInputError
+        
+        if (self.similarities.get(other_movie_id) == None):
+            value = self.compute_similarity(other_movie_id,movie_dict,user_dict) 
+            self.similarities.update({other_movie_id:value})
+            movie_dict.get(other_movie_id).similarities.update({self.id:value})
+        
+        return self.similarities.get(other_movie_id)
+
+    def compute_similarity(self, other_movie_id, movie_dict, user_dict):
+        """ 
+        Finds the similarity between the movie that 
+        is being called and another movie whose
+        id is other_movie_id.  
+        returns: float value
+        """
+        amount_of_users = 0
+        diff = 0
+        for user_id in user_dict:
+            if self.id in user_dict[user_id] and other_movie_id in user_dict[user_id]: 
+                diff += abs(float(user_dict[user_id][self.id]) - float(user_dict[user_id][other_movie_id]))
+                amount_of_users += 1   
+        if amount_of_users == 0:
+            return 0
+        av_diff = float(diff / amount_of_users) 
+        similarity = float(1 - (av_diff/4.5))
+        return similarity
+          
+        
+class Movie_Recommendations:
+    # Constructor
+    def __init__(self, movie_filename, training_ratings_filename):
+        """
+        Parameters: self, movie_filename, training_ratings_filename
+        Initializes the Movie_Recommendations object from 
+        the files containing movie names and training ratings.  
+        These variables are initialized: 
+        self.movie_dict - A dictionary that commects a movie id to
+               a movie objects
+        self.user_dict - A dictionary that maps user id's to a 
+               a dictionary that ties a movie id to the rating given. 
+        """
+        self.movie_dict = {}
+        self.user_dict = {}
+        other_dict = {}
+        users = 1
+
+        F = open(movie_filename, 'r', encoding= 'utf8')
+        csv_read = csv.reader(F, delimiter = ',' , quotechar = '"')
+        next(csv_read)
+
+        for line in csv_read:
+            self.movie_dict.update({int(line[0]) : Movie(int(line[0]), line[1])})
+        F.close()
+
+        updated_rate = open(training_ratings_filename , 'r')
+        csv_read = csv.reader(updated_rate, delimiter = ',' , quotechar = '"')
+        next(csv_read)
+
+        for line in csv_read: 
+            self.movie_dict[int(line[1])].users.append(int(line[0])) 
+            current_user = int(line[0])
+            if current_user == users: 
+                other_dict[int(line[1])] = float(line[2]) 
+                self.user_dict[users] = (other_dict)
+                users += 1
+            self.user_dict[users] = other_dict
+        updated_rate.close()
+
+    def predict_rating(self, user_id, movie_id):
+        """
+        Returns: rounded predicted rating
+        If user_id has already rated movie_id, return
+        that rating.
+        If user_id and or movie_id are not found in the database,
+        then BadInputError is raised.
+        """
+        product_total = 0
+        similarity_total = 0 
+
+        if(self.user_dict.get(user_id) == None or self.movie_dict.get(movie_id) == None): 
+                raise BadInputError 
+        if(self.user_dict.get(user_id).get(movie_id) != None):
+            return(self.user_dict.get(user_id).get(movie_id))
+            
+        for movie in self.user_dict.get(user_id):
+            product_total += self.movie_dict.get(movie).get_similarity(movie_id, self.movie_dict, self.user_dict) * self.user_dict.get(user_id).get(movie)  
+            similarity_total += self.movie_dict.get(movie).get_similarity(movie_id, self.movie_dict, self.user_dict)
+        if (similarity_total == 0): 
+            return 2.5
+        return float(product_total/ similarity_total,2) 
+
+    def predict_ratings(self, test_ratings_filename):
+        """
+        Parameters: self, test_ratings_filename
+        Returns: list of tuples
+        The tuple formating is:
+        (user id, movie title, predicted rating, actual rating)
+        """
+        print(test_ratings_filename)
+        tuples_list = []
+        with open(test_ratings_filename, newline = "\n") as csvfile:
+            lines = csv.reader(csvfile, delimiter = ',')
+            count = 0
+            for line in lines: 
+                if count == 0:
+                   count += 1
+                   continue
+                tuples_list.append((int(line[0]), self.movie_dict.get(int(line[1])).title ,self.predict_rating(int(line[0]), int(line[1])), float(line[2])))
+        return tuples_list 
+        
+
+    def correlation(self, predicted_ratings, actual_ratings):
+        """
+        Parameters: self, predicted_ratings, actual_ratings
+        Returns: the correlation between the values in the list predicted_ratings
+        and the list actual_ratings. 
+        
+        """
+        return pearsonr(predicted_ratings, actual_ratings)[0]
+        
+ 
+if __name__ == "__main__":
+    # Create movie recommendations object.
+    movie_recs = Movie_Recommendations("movies.csv", "training_ratings.csv")  
